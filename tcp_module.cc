@@ -80,15 +80,74 @@ int main(int argc, char * argv[]) {
 	
 	    if (event.handle == mux) {
 		// ip packet has arrived!
+ 	    MinetSendToMonitor(MinetMonitoringEvent("ip packet has arrived!"));
 	    }
 
 	    if (event.handle == sock) {
-		// socket request or response has arrived
-	    }
+		// socket request or response has arrived 
+
+		//modeled after udp_module.cc
+		
+		SockReqResponse req;
+		MinetReceive(sock, req); //recieve the request
+
+		//handling first connection
+		switch(req.type){
+		
+		case CONNECT:
+		{ 
+		    /* not completed
+		    *need to create and send syn packet */
+ 
+		    SockRequestResponse repl;
+           	    repl.type=STATUS;
+            	    repl.connection=req.connection;
+           	    // buffer is zero bytes
+           	    repl.bytes=0;
+            	    repl.error=EOK;
+                    MinetSend(sock,repl);
+		    break;
+		} 
+
+		case ACCEPT:
+		  { 
+
+		    /* not completed
+		    *keep track of created connections */
+
+		     SockRequestResponse repl;
+            	     repl.type=STATUS;
+                     repl.connection=req.connection;
+                     repl.bytes=0;
+                     repl.error=EOK;
+                     MinetSend(sock,repl);
+		     break;
+		  }
+
+		case CLOSE: //should work as is
+		  {
+		    SockRequestResponse repl;
+            	    repl.type=STATUS;
+            	    repl.connection=req.connection;
+           	     // buffer is zero bytes
+           	    repl.bytes=0;
+            	    repl.error=ENOMATCH;
+            	    MinetSend(sock,repl);
+		  }
+                
+		//will add other response types as needed
+
+		default:
+		break;
+
+			}
+		 }
 	}
 
 	if (event.eventtype == MinetEvent::Timeout) {
 	    // timeout ! probably need to resend some packets
+		
+ 	    MinetSendToMonitor(MinetMonitoringEvent("timeout ! probably need to resend some packets"));
 	}
 
     }
