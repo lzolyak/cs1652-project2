@@ -22,6 +22,7 @@
 #include <iostream>
 
 #include "Minet.h"
+#include "tcpstate.h"
 
 using namespace std;
 
@@ -81,6 +82,128 @@ int main(int argc, char * argv[]) {
 	    if (event.handle == mux) {
 		// ip packet has arrived!
  	    MinetSendToMonitor(MinetMonitoringEvent("ip packet has arrived!"));
+		
+		//recieve a packet
+		Packet pkt;
+		MinetRecieve(mux, pkt);
+
+		//get the header
+		 pkt.ExtractHeaderFromPayload<TCPHeader>(TCPHeader::EstimateTCPHeaderLength(pkt));
+		 TCPHeader header = packet.FindHeader(Headers::TCPHeader);
+		
+		//get IP 
+		IPHeader ip = pkt.FindHeader(Headers::IPHeader);
+		
+		//get IPs and Ports	
+		Connection c;
+		ip.GetDestIP(c.src);
+		ip.GetSourceIP(c.dest);
+		ip.GetProtocol(c.protocol);
+		header.GetSourcePort(c.destport);
+		header.GetDestPort(c.sourceport);
+
+		//get the sequence number
+		unsigned int seq_num;
+		header.GetSeqNum(seq_num);
+
+		//get the ack number
+		unsigned int ack_num;
+		header.GetAckNum(ack_num);
+
+		//get the flags
+		unsigned char flags;
+		header.GetFlags(flags);
+
+		//get the window size
+		unsigned short win_size;
+		header.GetWinSize(win_size);
+
+		//get the urgency
+		unsigned short urgent_ptr;
+		header.GetUrgentPtr(urgent_ptr);
+
+		
+		//do something with the data of the packet eventually
+
+		
+		//check our connections
+		ConnectionList<TCPState>::iterator connections = clist.FindMatching(c);
+		
+
+		if(connections = clist.end()){
+		  MinetSendToMonitor(MinetMonitoringEvent("CONNECTION DOES NOT EXIST"));
+		}
+
+		
+		//get the state
+		unsigned int conn_state;
+		conn_state = connections->state.GetState();
+		
+		switch(conn_state){
+		 
+		case LISTEN:{
+			
+		  //check if it is a syn
+		  if(IS_SYN(flags)){
+		   connections->state.SetState(SYN_RCVD); //change the status of the connection
+		   connections->state.last_acked = connections.state.last_sent -1 ; //set the last ACK
+		   connnections->state.SetLastRecvd(seq + 1);
+		   
+		   //send a packet-- needs to be done
+		  break;
+	
+		  }
+		else if(IS_FIN(flags)){
+		  //create a packet--needs to be done
+		  break;
+		}
+		break;
+		}
+
+		case SYN_RCVD:{
+		  if(IS_ACK(flags)){
+		  connections->state.SetState(ESTABLISHED); //set state to established
+		  connections->state.SetLastAcked(ack_num);
+		  connections->state.SetSentRwnd(win_size);
+		
+		  //set up our sock
+		  SockRequestResponse reply;
+		  reply.type = write;
+		  repl.connection = connections->connection;
+		  repl.error = EOK;
+		  repl.bytes = 0;
+		  MinetSend(sock, reply);
+		  
+		  }
+		break;
+		}
+		
+
+		case SYN_SENT:{
+		if(IS_ACK(flags) && IS_SYN(flags)){
+		    
+		  //update our connection state
+		  connections->state.SetLastRecvd(seq+1);
+		  
+		 //create and send packet-- NEEDS TO BE DONE
+		  
+		
+		  //set up our sock
+		  SockRequestResponse reply;
+		  reply.type = write;
+                  repl.connection = connections->connection;
+                  repl.error = EOK;
+                  repl.bytes = 0;
+                  MinetSend(sock, reply);
+	
+		
+	           
+		}
+		}
+		}
+		
+
+
 	    }
 
 	    if (event.handle == sock) {
