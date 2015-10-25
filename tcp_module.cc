@@ -41,7 +41,7 @@ struct TCPState {
 */
 // List of TCP states in diagram 18.12, p241 handbook. or, in tcpstate.h
 //Email from Lange oct20: For the TCPState you can choose to use the one provided or come up with your own version. The recommended approach would be to make your own, using the provided one as an example. 
-void GeneratePacket(Packet &packet, Connection c);
+void GeneratePacket(Packet &packet, Connection connection, unsigned char flags);
 
 int main(int argc, char * argv[]) {
 	MinetHandle mux;
@@ -106,9 +106,9 @@ int main(int argc, char * argv[]) {
 				Connection c;
 //struct Connection defined in sockint.h, line 32
 				ip.GetDestIP(c.src);
-				ip.GetSourceIP(c.dest);
+				ip.GetSourceIP(c.dest);				// notice swap -- keep it in OUR perspective
 				ip.GetProtocol(c.protocol);
-				header.GetSourcePort(c.destport);
+				header.GetSourcePort(c.destport);	// ibid
 				header.GetDestPort(c.srcport);
 
 				//get the sequence number
@@ -159,6 +159,12 @@ int main(int argc, char * argv[]) {
 							connections->state.SetLastRecvd(seq_num + 1);
 
 							//generate a SYN, ACK packet
+							Packet p;
+							unsigned char f = 0;
+							SET_SYN(f);
+							SET_ACK(f);
+							GeneratePacket(p, c, f);
+							MinetSend(sock, p);
 							break;
 							
 						}
@@ -198,7 +204,11 @@ int main(int argc, char * argv[]) {
 							connections->state.SetLastRecvd(seq_num+1);
 
 							//generate a ACK packet
-							
+							Packet p;
+							unsigned char f = 0;
+							SET_ACK(f);
+							GeneratePacket(p, c, f);
+							MinetSend(sock, p);				
 							
 							//set up our sock
 							SockRequestResponse reply;
@@ -292,31 +302,36 @@ int main(int argc, char * argv[]) {
 	return 0;
 }
 
-void GeneratePacket(Packet &packet, Connection c) {
-	// see: tcp.h, line 40+
+void GeneratePacket(Packet &packet, Connection c, unsigned char flags) {
 	// see: ip.h, line 71+
 	IPHeader iph;
 	//void SetProtocol(const unsigned char &proto);
-		iph.SetProtocol(IP_PROTO_TCP);
 	//void SetSourceIP(const IPAddress &addr);
-		iph.SetSourceIP(0);
 	//void SetDestIP(const IPAddress &addr);
-		iph.SetDestIP(0);
-	void RecomputeChecksum();
-	packet.PushFrontHeader(ip);
+	//void SetChecksum();
+		//noted as automatic in ip.h, after any set
+		iph.SetProtocol(IP_PROTO_TCP);
+		iph.SetSourceIP(c.src);
+		iph.SetDestIP(c.dest);
+	packet.PushFrontHeader(iph);
 	
+	// see: tcp.h, line 40+
 	TCPHeader tcph;
 	//void SetSourcePort(const unsigned short &port, const Packet &p);
-		tcph.SetSourcePort(c.srcport, packet);
 	//void SetDestPort(const unsigned short &port, const Packet &p);
 	//void SetSeqNum(const unsigned int &n, const Packet &p);
 	//void SetAckNum(const unsigned int &n, const Packet &p);
 	//void SetHeaderLen(const unsigned char &l, const Packet &p);
 	//void SetFlags(const unsigned char &f, const Packet &p);
-		unsigned char flags = 0; // set flags on packet separately of this function, which will just make the generic packet
-		tcph.SetFlags(flags, packet);
 	//void SetWinSize(const unsigned short &w, const Packet &p);
 	//void RecomputeChecksum(const Packet &p);
-		// the caller will have to call this after setting flags
-	
+		tcph.SetSourcePort(c.srcport, packet);
+		tcph.SetDestPort(c.destport, packet);
+		tcph.SetSeqNum(0, packet);
+		tcph.SetAckNum(0, packet);
+		tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, packet);
+		tcph.SetFlags(flags, packet);
+		tcph.SetWinSize(0, packet);
+		tcph.RecomputeChecksum(packet);
+	packet.PushBackHeader(tcph);
 }
