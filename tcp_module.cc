@@ -158,22 +158,18 @@ int main(int argc, char * argv[]) {
 //#2a
 // State:SYNC_RECV + Flag:ACK -> (no send) ESTABLISHED [server]
 						if(IS_SYN(flags)){
-							connections->state.SetState(SYN_RCVD); //change the status of the connection
-							connections->state.last_acked = connections->state.last_sent -1 ; //set the last ACK
 							connections->state.SetLastRecvd(seq_num);
-
-							//generate a SYN, ACK packet
+							connections->state.SetSendRwnd(win_size);
+							
 							Packet p;
 							unsigned char f = 0;
 							SET_SYN(f);
 							SET_ACK(f);
 							GeneratePacket(p, *connections, f);
 							MinetSend(sock, p);
-							break;							
-						}
-						else if(IS_FIN(flags)){
-							//create a packet--needs to be done
-							break;
+							connections->state.SetLastSent(connections->state.GetLastSent()+1);
+							connections->state.SetState(SYN_RCVD);
+							MinetSendToMonitor(MinetMonitoringEvent("SERVER: SYN recv. Sent SYN-ACK. Now in state SYN_RECV.\n"));
 						}
 						break;
 					}
@@ -182,8 +178,8 @@ int main(int argc, char * argv[]) {
 						if(IS_ACK(flags)){
 //#2a
 // State:SYNC_RECV + Flag:ACK -> (no send) ESTABLISHED [server]
-							connections->state.SetState(ESTABLISHED); //set state to established
-							connections->state.SetLastAcked(ack_num);
+							connections->state.SetLastRecvd(seq_num);
+							connections->state.SetLastAcked(ack_num+1); // this is an ack
 							connections->state.SetSendRwnd(win_size);
 							
 							//set up our sock
@@ -194,6 +190,8 @@ int main(int argc, char * argv[]) {
 							reply.bytes = 0;
 							MinetSend(sock, reply);
 							
+							connections->state.SetState(ESTABLISHED);
+							MinetSendToMonitor(MinetMonitoringEvent("SERVER: ACK to SYN recv. Send nothing. Now in state ESTABLISHED.\n"));							
 						}
 						break;
 					}
@@ -205,7 +203,7 @@ int main(int argc, char * argv[]) {
 // State:SYNC_SENT + Flag:SYN+ACK -> (Flag:ACK) State:ESTABLISHED [client]
 							//update our connection state
 							connections->state.SetLastRecvd(seq_num);
-							connections->state.SetLastAcked(ack_num);
+							connections->state.SetLastAcked(ack_num+1); // this is an ack
 							connections->state.SetSendRwnd(win_size);	// still need to verify how rwnd vs "n" work
 							
 							//generate a ACK packet
@@ -348,6 +346,7 @@ int main(int argc, char * argv[]) {
 						repl.bytes=0;
 						repl.error=EOK;
 						MinetSend(sock,repl);
+						MinetSendToMonitor(MinetMonitoringEvent("Server: Now in state LISTEN.\n"));
 						break;
 					}
 				case WRITE: {
@@ -420,7 +419,7 @@ void GeneratePacket(Packet &packet, ConnectionToStateMapping<TCPState> cts, unsi
 	//void RecomputeChecksum(const Packet &p);
 		tcph.SetSourcePort(c.srcport, packet);
 		tcph.SetDestPort(c.destport, packet);
-		tcph.SetSeqNum(s.GetLastAcked()+1, packet); // notice this is lastacked -- +1
+		tcph.SetSeqNum(s.GetLastAcked()+1, packet); // notice this is lastacked -- +1, since we're a new packet; ignore lost pockets, we're the next one no matter what
 		tcph.SetAckNum(s.GetLastRecvd(), packet);	// notice acking last in
 		tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, packet);
 		tcph.SetFlags(flags, packet);
