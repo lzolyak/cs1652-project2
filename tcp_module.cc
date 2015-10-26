@@ -456,8 +456,8 @@ void GeneratePacket(Packet &packet, TCPState st, unsigned char flags, Connection
 		// but wireshark says it's setting to 16 and not 20, wtf
 		//tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, packet);
 		tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH+1, packet); // need 21, constant defined as 20
-		tcph.SetSeqNum(s.GetLastAcked()+1, packet); // notice this is lastacked -- +1, since we're a new packet; ignore lost pockets, we're the next one no matter what
-		tcph.SetAckNum(s.GetLastRecvd(), packet);	// notice acking last in
+		tcph.SetSeqNum(s.GetLastAcked(), packet); // notice this is lastacked -- +1, since we're a new packet; ignore lost pockets, we're the next one no matter what
+		tcph.SetAckNum(s.GetLastRecvd()+1, packet);	// notice acking last in
 		tcph.SetFlags(flags, packet);
 		tcph.SetWinSize(s.GetN(), packet); // difference between Rwnd and N?
 		tcph.SetUrgentPtr(0, packet);
