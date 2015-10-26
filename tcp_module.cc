@@ -27,6 +27,7 @@
 #include "ip.h"
 #include "tcp.h"
 #include "buffer.h"
+#include "constate.h"
 
 using namespace std;
 
@@ -149,7 +150,10 @@ int main(int argc, char * argv[]) {
 				conn_state = connections->state.GetState();
 				
 				switch(conn_state){
-					
+				case CLOSED: {
+					// nothing done
+					break;
+				}
 				case LISTEN:{
 //#2a
 // State:SYNC_RECV + Flag:ACK -> (no send) ESTABLISHED [server]
@@ -165,8 +169,7 @@ int main(int argc, char * argv[]) {
 							SET_ACK(f);
 							GeneratePacket(p, c, f);
 							MinetSend(sock, p);
-							break;
-							
+							break;							
 						}
 						else if(IS_FIN(flags)){
 							//create a packet--needs to be done
@@ -222,7 +225,41 @@ int main(int argc, char * argv[]) {
 							
 						}
 					}
+				case ESTABLISHED: {
+					// nothing done
+					break;
+					}
+				case SEND_DATA: {
+					// nothing done
+					break;
+					}
+				case CLOSE_WAIT: {
+					// nothing done
+					break;
+					}
+				case FIN_WAIT1: {
+					// nothing done
+					break;
+					}
+				case CLOSING: {
+					// nothing done
+					break;
+					}
+				case LAST_ACK: {
+					// nothing done
+					break;
+					}
+				case FIN_WAIT2: {
+					// nothing done
+					break;
+					}
+				case TIME_WAIT: {
+					// nothing done
+					break;
+					}
 				}
+
+
 				
 
 
@@ -241,8 +278,32 @@ int main(int argc, char * argv[]) {
 					
 				case CONNECT:
 					{ 
-						/* not completed
-*need to create and send syn packet */
+//#2a
+// State:CLOSED + Req:Connect -> (Flag:SYN) State:SYN_SENT [client]
+// have to create new connection
+						TCPState tcps;
+						tcps.SetState(SYN_SENT);
+						tcps.SetLastAcked(rand()); // notes say this should be random
+						tcps.SetLastSent(tcps.GetLastAcked());
+						
+						Connection c;
+						//Connection(const IPAddress &s,
+						//const IPAddress &d,
+						//const unsigned short sport,
+						//const unsigned short destport,
+						//const unsigned char  proto);
+						c = req.connection;
+						
+						ConnectionToStateMapping<TCPState> cs;
+						cs.connection = c;
+						cs.state = tcps;
+						clist.push_front(cs);
+						
+						Packet p;
+						unsigned char f = 0;
+						SET_SYN(f);
+						GeneratePacket(p, c, f);
+						MinetSend(sock, p);
 
 						SockRequestResponse repl;
 						repl.type=STATUS;
@@ -251,13 +312,14 @@ int main(int argc, char * argv[]) {
 						repl.bytes=0;
 						repl.error=EOK;
 						MinetSend(sock,repl);
+
 						break;
 					} 
 
 				case ACCEPT:
 					{ 
-
-						/* not completed
+//#2a
+/* not completed
 *keep track of created connections */
 
 						SockRequestResponse repl;
