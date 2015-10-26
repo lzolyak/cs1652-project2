@@ -42,7 +42,7 @@ struct TCPState {
 */
 // List of TCP states in diagram 18.12, p241 handbook. or, in tcpstate.h
 //Email from Lange oct20: For the TCPState you can choose to use the one provided or come up with your own version. The recommended approach would be to make your own, using the provided one as an example. 
-void GeneratePacket(Packet &packet, Connection connection, unsigned char flags);
+void GeneratePacket(Packet &packet, ConnectionToStateMapping<TCPState> connection, unsigned char flags);
 
 int main(int argc, char * argv[]) {
 	MinetHandle mux;
@@ -160,14 +160,14 @@ int main(int argc, char * argv[]) {
 						if(IS_SYN(flags)){
 							connections->state.SetState(SYN_RCVD); //change the status of the connection
 							connections->state.last_acked = connections->state.last_sent -1 ; //set the last ACK
-							connections->state.SetLastRecvd(seq_num + 1);
+							connections->state.SetLastRecvd(seq_num);
 
 							//generate a SYN, ACK packet
 							Packet p;
 							unsigned char f = 0;
 							SET_SYN(f);
 							SET_ACK(f);
-							GeneratePacket(p, c, f);
+							GeneratePacket(p, *connections, f);
 							MinetSend(sock, p);
 							break;							
 						}
@@ -204,14 +204,18 @@ int main(int argc, char * argv[]) {
 //#2a
 // State:SYNC_SENT + Flag:SYN+ACK -> (Flag:ACK) State:ESTABLISHED [client]
 							//update our connection state
-							connections->state.SetLastRecvd(seq_num+1);
-
+							connections->state.SetLastRecvd(seq_num);
+							connections->state.SetLastAcked(ack_num);
+							connections->state.SetSendRwnd(win_size);	// still need to verify how rwnd vs "n" work
+							
 							//generate a ACK packet
 							Packet p;
 							unsigned char f = 0;
 							SET_ACK(f);
-							GeneratePacket(p, c, f);
+							GeneratePacket(p, *connections, f);
 							MinetSend(sock, p);				
+							connections->state.SetLastSent(connections->state.GetLastSent()+1);
+							connections->state.SetState(ESTABLISHED);
 							
 							//set up our sock
 							SockRequestResponse reply;
@@ -221,8 +225,8 @@ int main(int argc, char * argv[]) {
 							reply.bytes = 0;
 							MinetSend(sock, reply);
 							
-							
-							
+							MinetSendToMonitor(MinetMonitoringEvent("Client: SYN-ACK recv. Sent ACK. Now in state ESTABLISHED.\n"));
+							//todo: handle this ack not recv?
 						}
 					}
 				case ESTABLISHED: {
@@ -275,7 +279,7 @@ int main(int argc, char * argv[]) {
 
 				//handling first connection
 				switch(req.type){
-					
+//enum srrType {CONNECT=0, ACCEPT=1, WRITE=2, FORWARD=3, CLOSE=4, STATUS=5};					
 				case CONNECT:
 					{ 
 //#2a
@@ -294,6 +298,7 @@ int main(int argc, char * argv[]) {
 						//const unsigned char  proto);
 						c = req.connection;
 						
+						tcps.SetLastSent(tcps.GetLastSent()+1); // about to send a packet
 						ConnectionToStateMapping<TCPState> cs;
 						cs.connection = c;
 						cs.state = tcps;
@@ -302,8 +307,9 @@ int main(int argc, char * argv[]) {
 						Packet p;
 						unsigned char f = 0;
 						SET_SYN(f);
-						GeneratePacket(p, c, f);
+						GeneratePacket(p, cs, f);
 						MinetSend(sock, p);
+
 
 						SockRequestResponse repl;
 						repl.type=STATUS;
@@ -312,6 +318,8 @@ int main(int argc, char * argv[]) {
 						repl.bytes=0;
 						repl.error=EOK;
 						MinetSend(sock,repl);
+
+						MinetSendToMonitor(MinetMonitoringEvent("Client: SYN sent. Now in state SYN_SENT.\n"));
 
 						break;
 					} 
@@ -330,6 +338,10 @@ int main(int argc, char * argv[]) {
 						MinetSend(sock,repl);
 						break;
 					}
+				case WRITE: {
+					// nothing
+					break;
+					}
 
 				case CLOSE: //should work as is
 					{
@@ -343,6 +355,11 @@ int main(int argc, char * argv[]) {
 					}
 					
 					//will add other response types as needed
+
+				case STATUS: {
+					// nothing
+					break;
+					}
 
 				default:
 					break;
@@ -364,7 +381,9 @@ int main(int argc, char * argv[]) {
 	return 0;
 }
 
-void GeneratePacket(Packet &packet, Connection c, unsigned char flags) {
+void GeneratePacket(Packet &packet, ConnectionToStateMapping<TCPState> cts, unsigned char flags) {
+	Connection c = cts.connection;
+	TCPState s = cts.state;
 	// see: ip.h, line 71+
 	IPHeader iph;
 	//void SetProtocol(const unsigned char &proto);
@@ -389,11 +408,12 @@ void GeneratePacket(Packet &packet, Connection c, unsigned char flags) {
 	//void RecomputeChecksum(const Packet &p);
 		tcph.SetSourcePort(c.srcport, packet);
 		tcph.SetDestPort(c.destport, packet);
-		tcph.SetSeqNum(0, packet);
-		tcph.SetAckNum(0, packet);
+		tcph.SetSeqNum(s.GetLastAcked()+1, packet); // notice this is lastacked -- +1
+		tcph.SetAckNum(s.GetLastRecvd(), packet);	// notice acking last in
 		tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, packet);
 		tcph.SetFlags(flags, packet);
-		tcph.SetWinSize(0, packet);
+		tcph.SetWinSize(s.GetN(), packet); // difference between Rwnd and N?
+			//tcpstate.cc:   N = 16*TCP_MAXIMUM_SEGMENT_SIZE; //16 packets allowed in flight
 		tcph.RecomputeChecksum(packet);
 	packet.PushBackHeader(tcph);
 }
