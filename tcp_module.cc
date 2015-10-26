@@ -1,3 +1,4 @@
+
 // You will build this in project part B - this is merely a
 // stub that does nothing but integrate into the stack
 
@@ -42,7 +43,7 @@ struct TCPState {
 */
 // List of TCP states in diagram 18.12, p241 handbook. or, in tcpstate.h
 //Email from Lange oct20: For the TCPState you can choose to use the one provided or come up with your own version. The recommended approach would be to make your own, using the provided one as an example. 
-void GeneratePacket(Packet &packet, ConnectionToStateMapping<TCPState> connection, unsigned char flags);
+void GeneratePacket(Packet &packet, TCPState st, unsigned char flags, Connection cc, unsigned bytes);
 
 int main(int argc, char * argv[]) {
 	MinetHandle mux;
@@ -64,6 +65,7 @@ int main(int argc, char * argv[]) {
 			(MinetIsModuleInConfig(MINET_IP_MUX)) ) {
 
 		MinetSendToMonitor(MinetMonitoringEvent("Can't connect to ip_mux"));
+		printf("Can't connect to ip_mux");
 
 		return -1;
 	}
@@ -72,6 +74,7 @@ int main(int argc, char * argv[]) {
 			(MinetIsModuleInConfig(MINET_SOCK_MODULE)) ) {
 
 		MinetSendToMonitor(MinetMonitoringEvent("Can't accept from sock_module"));
+		printf("Can't accept from sock_module");
 
 		return -1;
 	}
@@ -91,6 +94,7 @@ int main(int argc, char * argv[]) {
 			if (event.handle == mux) {
 				// ip packet has arrived!
 				MinetSendToMonitor(MinetMonitoringEvent("TCP/IP packet has arrived!\n"));
+				printf("TCP/IP packet has arrived!\n");
 				
 				//recieve a packet
 				Packet pkt;
@@ -142,6 +146,7 @@ int main(int argc, char * argv[]) {
 
 				if ( connections == clist.end() ){
 					MinetSendToMonitor(MinetMonitoringEvent("CONNECTION DOES NOT EXIST"));
+					printf("CONNECTION DOES NOT EXIST");
 				}
 
 				
@@ -165,11 +170,14 @@ int main(int argc, char * argv[]) {
 							unsigned char f = 0;
 							SET_SYN(f);
 							SET_ACK(f);
-							GeneratePacket(p, *connections, f);
-							MinetSend(sock, p);
+							GeneratePacket(p, connections->state, f, c, 0);
+							MinetSend(mux, p);
+							usleep(10000);
+							MinetSend(mux, p);
 							connections->state.SetLastSent(connections->state.GetLastSent()+1);
 							connections->state.SetState(SYN_RCVD);
 							MinetSendToMonitor(MinetMonitoringEvent("SERVER: SYN recv. Sent SYN-ACK. Now in state SYN_RECV.\n"));
+							printf("SERVER: SYN recv. Sent SYN-ACK. Now in state SYN_RECV.\n");
 						}
 						break;
 					}
@@ -192,6 +200,7 @@ int main(int argc, char * argv[]) {
 							
 							connections->state.SetState(ESTABLISHED);
 							MinetSendToMonitor(MinetMonitoringEvent("SERVER: ACK to SYN recv. Send nothing. Now in state ESTABLISHED.\n"));							
+							printf("SERVER: ACK to SYN recv. Send nothing. Now in state ESTABLISHED.\n");							
 						}
 						break;
 					}
@@ -210,8 +219,10 @@ int main(int argc, char * argv[]) {
 							Packet p;
 							unsigned char f = 0;
 							SET_ACK(f);
-							GeneratePacket(p, *connections, f);
-							MinetSend(sock, p);				
+							GeneratePacket(p, connections->state, f, c, 0);
+							MinetSend(mux, p);				
+							usleep(10000);
+							MinetSend(mux, p);
 							connections->state.SetLastSent(connections->state.GetLastSent()+1);
 							connections->state.SetState(ESTABLISHED);
 							
@@ -224,6 +235,7 @@ int main(int argc, char * argv[]) {
 							MinetSend(sock, reply);
 							
 							MinetSendToMonitor(MinetMonitoringEvent("Client: SYN-ACK recv. Sent ACK. Now in state ESTABLISHED.\n"));
+							printf("Client: SYN-ACK recv. Sent ACK. Now in state ESTABLISHED.\n");
 							//todo: handle this ack not recv?
 						}
 					}
@@ -285,8 +297,8 @@ int main(int argc, char * argv[]) {
 // have to create new connection
 						TCPState tcps;
 						tcps.SetState(SYN_SENT);
-						tcps.SetLastAcked(rand()); // notes say this should be random
-						tcps.SetLastSent(tcps.GetLastAcked());
+						tcps.SetLastAcked(rand()%32000); // notes say this should be random
+						tcps.SetLastSent(rand()%32000);
 						
 						Connection c;
 						//Connection(const IPAddress &s,
@@ -295,6 +307,7 @@ int main(int argc, char * argv[]) {
 						//const unsigned short destport,
 						//const unsigned char  proto);
 						c = req.connection;
+						c.srcport = 10000 + rand()%10000;
 						
 						tcps.SetLastSent(tcps.GetLastSent()+1); // about to send a packet
 						ConnectionToStateMapping<TCPState> cs;
@@ -305,8 +318,11 @@ int main(int argc, char * argv[]) {
 						Packet p;
 						unsigned char f = 0;
 						SET_SYN(f);
-						GeneratePacket(p, cs, f);
-						MinetSend(sock, p);
+						GeneratePacket(p, tcps, f, c, 0);
+						MinetSend(mux, p);
+						usleep(10000);
+						MinetSend(mux, p);
+						cs.state.SetLastSent(cs.state.GetLastSent()+1);
 
 
 						SockRequestResponse repl;
@@ -318,6 +334,7 @@ int main(int argc, char * argv[]) {
 						MinetSend(sock,repl);
 
 						MinetSendToMonitor(MinetMonitoringEvent("Client: SYN sent. Now in state SYN_SENT.\n"));
+						printf("Client: SYN sent. Now in state SYN_SENT.\n");
 
 						break;
 					} 
@@ -347,10 +364,22 @@ int main(int argc, char * argv[]) {
 						repl.error=EOK;
 						MinetSend(sock,repl);
 						MinetSendToMonitor(MinetMonitoringEvent("Server: Now in state LISTEN.\n"));
+						printf("Server: Now in state LISTEN.\n");
 						break;
 					}
 				case WRITE: {
-					// nothing
+					//TODO: check in state established.
+					ConnectionList<TCPState>::iterator cst = clist.FindMatching(req.connection);
+					
+					Connection c = cst->connection;
+					TCPState tcps = cst->state;
+					
+					const char payload[] = {'h', 'e', 'l', 'o', '\0'};
+					Packet p(payload, 5);
+					unsigned char f = 0;
+					GeneratePacket(p, tcps, f, c, 5);
+					MinetSend(mux, p);
+					cst->state.SetLastSent(cst->state.GetLastSent()+1);
 					break;
 					}
 
@@ -392,9 +421,11 @@ int main(int argc, char * argv[]) {
 	return 0;
 }
 
-void GeneratePacket(Packet &packet, ConnectionToStateMapping<TCPState> cts, unsigned char flags) {
-	Connection c = cts.connection;
-	TCPState s = cts.state;
+//void GeneratePacket(Packet &packet, TCPState &st, unsigned char flags, Connection &cc) {
+void GeneratePacket(Packet &packet, TCPState st, unsigned char flags, Connection cc, unsigned bytes) {
+	//unsigned bytes = 0;
+	Connection c = cc;
+	TCPState s = st;
 	// see: ip.h, line 71+
 	IPHeader iph;
 	//void SetProtocol(const unsigned char &proto);
@@ -402,9 +433,11 @@ void GeneratePacket(Packet &packet, ConnectionToStateMapping<TCPState> cts, unsi
 	//void SetDestIP(const IPAddress &addr);
 	//void SetChecksum();
 		//noted as automatic in ip.h, after any set
+	    iph.SetTotalLength(bytes+TCP_HEADER_BASE_LENGTH+IP_HEADER_BASE_LENGTH);
 		iph.SetProtocol(IP_PROTO_TCP);
 		iph.SetSourceIP(c.src);
 		iph.SetDestIP(c.dest);
+	//cout<<iph<<"\n";
 	packet.PushFrontHeader(iph);
 	
 	// see: tcp.h, line 40+
@@ -419,12 +452,17 @@ void GeneratePacket(Packet &packet, ConnectionToStateMapping<TCPState> cts, unsi
 	//void RecomputeChecksum(const Packet &p);
 		tcph.SetSourcePort(c.srcport, packet);
 		tcph.SetDestPort(c.destport, packet);
+		//const unsigned TCP_HEADER_BASE_LENGTH=20;
+		// but wireshark says it's setting to 16 and not 20, wtf
+		//tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, packet);
+		tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH+1, packet); // need 21, constant defined as 20
 		tcph.SetSeqNum(s.GetLastAcked()+1, packet); // notice this is lastacked -- +1, since we're a new packet; ignore lost pockets, we're the next one no matter what
 		tcph.SetAckNum(s.GetLastRecvd(), packet);	// notice acking last in
-		tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, packet);
 		tcph.SetFlags(flags, packet);
 		tcph.SetWinSize(s.GetN(), packet); // difference between Rwnd and N?
-			//tcpstate.cc:   N = 16*TCP_MAXIMUM_SEGMENT_SIZE; //16 packets allowed in flight
+		tcph.SetUrgentPtr(0, packet);
+		//tcpstate.cc:   N = 16*TCP_MAXIMUM_SEGMENT_SIZE; //16 packets allowed in flight
 		tcph.RecomputeChecksum(packet);
+	cout<<tcph<<"\n";
 	packet.PushBackHeader(tcph);
 }
