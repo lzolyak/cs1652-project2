@@ -283,7 +283,7 @@ int main(int argc, char * argv[]) {
 				case CONNECT:
 					{ 
 //#2a
-// State:CLOSED + Req:Connect -> (Flag:SYN) State:SYN_SENT [client]
+// State:CLOSED + Req:CONNECT -> (Flag:SYN) State:SYN_SENT [client]
 // have to create new connection
 						TCPState tcps;
 						tcps.SetState(SYN_SENT);
@@ -327,8 +327,20 @@ int main(int argc, char * argv[]) {
 				case ACCEPT:
 					{ 
 //#2a
-/* not completed
-*keep track of created connections */
+// State:CLOSED + Req:ACCEPT -> (nothing) State:LISTEN [client]
+// have to create new connection
+						TCPState tcps;
+						tcps.SetState(LISTEN);
+						tcps.SetLastAcked(rand()); // notes say this should be random
+						tcps.SetLastSent(tcps.GetLastAcked());
+						
+						Connection c;
+						c = req.connection;
+						
+						ConnectionToStateMapping<TCPState> cs;
+						cs.connection = c;
+						cs.state = tcps;
+						clist.push_front(cs);
 
 						SockRequestResponse repl;
 						repl.type=STATUS;
