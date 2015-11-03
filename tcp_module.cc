@@ -409,9 +409,62 @@ int main(int argc, char * argv[]) {
 		}
 
 		if (event.eventtype == MinetEvent::Timeout) {
-			// timeout ! probably need to resend some packets
+		        
+			//get the current time
+			Time current_time;
 			
-			MinetSendToMonitor(MinetMonitoringEvent("timeout ! probably need to resend some packets"));
+                        for(ConnectionList<TCPState>::iterator clist_iterator = clist.begin(); clist_iterator!=clist.end(); clist_iterator++) {
+				
+			  if(current_time >= clist_iterator->timeout){ //check if we have a timeout
+			     MinetSendToMonitor(MinetMonitoringEvent("timeout ! probably need to resend some packets"));
+			     
+			     //get the state
+			     unsigned int timeout_state;
+			     timeout_state = clist_iterator->state.GetState();
+	
+			     switch(timeout_state){
+			        case SYN_SENT: {
+				  if(clist_iterator.ExpireTimerTries()){ //check if we have exceeded our tries
+					Buffer data;
+				
+				  	SockRequestResponse write(WRITE, data, 0, ECONN_FAILED);
+					MinetSend(sock, write);
+					clist_iterator->bTmrActive = false;
+					clist_iterator->state.SetState(CLOSING);
+					}
+	
+				  else{ //retransmit
+					Packet new_syn;
+					//Generate our packet
+					
+					//MinetSend(mux, new_syn);
+					clist_iterator->timeout = current_time++;
+				  }
+				break;
+				}
+				
+				case SYN_RCVD: {
+				   if(clist_iterator.ExpireTimerTries()){ //check if we have exceeded our tries
+	
+					clist_iterator->bTmrActive = false;
+					clist_iterator->state.SetState(LISTEN);
+				   }
+				   else{
+					Packet new_syn_ack;
+                                        //Generate our packet
+
+                                        //MinetSend(mux, new_syn_ack);
+                                        clist_iterator->timeout = current_time++;
+
+				   }
+				break;
+				}
+
+			     }
+                          }
+			}
+
+
 		}
 
 	}
