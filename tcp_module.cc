@@ -106,6 +106,8 @@ int main(int argc, char * argv[]) {
 				
 				//get IP 
 				IPHeader ip = pkt.FindHeader(Headers::IPHeader);
+
+				Buffer buf = pkt.GetPayload();
 				
 				//get IPs and Ports	
 				Connection c;
@@ -172,7 +174,7 @@ int main(int argc, char * argv[]) {
 							SET_ACK(f);
 							GeneratePacket(p, connections->state, f, c, 0);
 							MinetSend(mux, p);
-							usleep(10000);
+							usleep(10000); // repeat because ARP isn't populated yet
 							MinetSend(mux, p);
 							connections->state.SetLastSent(connections->state.GetLastSent()+1);
 							connections->state.SetState(SYN_RCVD);
@@ -212,7 +214,8 @@ int main(int argc, char * argv[]) {
 // State:SYNC_SENT + Flag:SYN+ACK -> (Flag:ACK) State:ESTABLISHED [client]
 							//update our connection state
 							connections->state.SetLastRecvd(seq_num);
-							connections->state.SetLastAcked(ack_num+1); // this is an ack
+							connections->state.SetLastAcked(ack_num);	// this is an ack
+									// previously had ack_num+1. should not be necessary
 							connections->state.SetSendRwnd(win_size);	// still need to verify how rwnd vs "n" work
 							
 							//generate a ACK packet
@@ -221,9 +224,8 @@ int main(int argc, char * argv[]) {
 							SET_ACK(f);
 							GeneratePacket(p, connections->state, f, c, 0);
 							MinetSend(mux, p);				
-							usleep(10000);
-							MinetSend(mux, p);
-							connections->state.SetLastSent(connections->state.GetLastSent()+1);
+							//connections->state.SetLastSent(connections->state.GetLastSent()+1);
+							//ack shouldn't increment
 							connections->state.SetState(ESTABLISHED);
 							
 							//set up our sock
@@ -240,35 +242,67 @@ int main(int argc, char * argv[]) {
 						}
 					}
 				case ESTABLISHED: {
-					// nothing done
-					break;
+						if (IS_ACK(flags)) {
+							printf("A packet was acknowledged: %d\n", ack_num);
+							connections->state.SetLastAcked(ack_num);
+						}
+
+						if (IS_FIN(flags)) {
+							// RECV: fin, SEND ack -> CLOSE_WAIT
+						}
+						
+						{
+							// OR data
+							// send ack!
+							Packet p;
+							unsigned char f = 0;
+							SET_ACK(f);
+							GeneratePacket(p, connections->state, f, c, 0);
+							MinetSend(mux, p);				
+							// connections->state.SetLastSent(connections->state.GetLastSent()+1);
+							// an ack shouldn't increment the sent
+
+							// push data to socket
+							SockRequestResponse reply;
+							reply.type = WRITE;
+							reply.connection = connections->connection;
+							reply.error = EOK;
+							reply.bytes = buf.GetSize();
+							reply.data = buf;
+							MinetSend(sock, reply);
+
+						}
+						break;
 					}
 				case SEND_DATA: {
-					// nothing done
+					// NOT covered in the state diagram
 					break;
 					}
 				case CLOSE_WAIT: {
-					// nothing done
+					// send a fin, transition to LAST_ACK
 					break;
 					}
 				case FIN_WAIT1: {
-					// nothing done
+					// RECV ack SEND nothing -> FIN_WAIT_2
+					// RECV fin SEND ack -> CLOSING
+					// RECV fin,ack SEND ack -> time_wait (=die for this project)
 					break;
 					}
 				case CLOSING: {
+					// RECV ack -> TIME_WAIT
 					// nothing done
 					break;
 					}
 				case LAST_ACK: {
-					// nothing done
+					// die.
 					break;
 					}
 				case FIN_WAIT2: {
-					// nothing done
+					// RECV fin SEND ack -> TIME_WAIT (=die)
 					break;
 					}
 				case TIME_WAIT: {
-					// nothing done
+					// for this project, just die
 					break;
 					}
 				}
@@ -320,18 +354,18 @@ int main(int argc, char * argv[]) {
 						SET_SYN(f);
 						GeneratePacket(p, tcps, f, c, 0);
 						MinetSend(mux, p);
-						usleep(10000);
+						usleep(10000); // do this because arp isn't populated yet
 						MinetSend(mux, p);
 						cs.state.SetLastSent(cs.state.GetLastSent()+1);
 
 
-						SockRequestResponse repl;
-						repl.type=STATUS;
-						repl.connection=req.connection;
+						SockRequestResponse reply;
+						reply.type=STATUS;
+						reply.connection=req.connection;
 						// buffer is zero bytes
-						repl.bytes=0;
-						repl.error=EOK;
-						MinetSend(sock,repl);
+						reply.bytes=0;
+						reply.error=EOK;
+						MinetSend(sock, reply);
 
 						MinetSendToMonitor(MinetMonitoringEvent("Client: SYN sent. Now in state SYN_SENT.\n"));
 						printf("Client: SYN sent. Now in state SYN_SENT.\n");
@@ -357,12 +391,12 @@ int main(int argc, char * argv[]) {
 						cs.state = tcps;
 						clist.push_front(cs);
 
-						SockRequestResponse repl;
-						repl.type=STATUS;
-						repl.connection=req.connection;
-						repl.bytes=0;
-						repl.error=EOK;
-						MinetSend(sock,repl);
+						SockRequestResponse reply;
+						reply.type=STATUS;
+						reply.connection=req.connection;
+						reply.bytes=0;
+						reply.error=EOK;
+						MinetSend(sock, reply);
 						MinetSendToMonitor(MinetMonitoringEvent("Server: Now in state LISTEN.\n"));
 						printf("Server: Now in state LISTEN.\n");
 						break;
@@ -373,25 +407,49 @@ int main(int argc, char * argv[]) {
 					
 					Connection c = cst->connection;
 					TCPState tcps = cst->state;
+					Buffer buf = req.data;
+					unsigned int datasize = buf.GetSize();
+					datasize = min(TCP_MAXIMUM_SEGMENT_SIZE, datasize);
 					
-					const char payload[] = {'h', 'e', 'l', 'o', '\0'};
-					Packet p(payload, 5);
+// begin print incoming data to console
+					printf("DATA|");
+					//http://stackoverflow.com/questions/8170697/printf-a-buffer-of-char-passing-the-length-in-c
+					char printt[2];
+					printt[1] = '\0';
+					unsigned int i;
+					for (i = 0; i < datasize; ++i) {
+						buf.GetData(printt, (size_t)1, i);
+						printf(printt);
+					}
+					printf("|ENDDATA");
+// end print incoming data to console
+					
+					//const char payload[] = {'h', 'e', 'l', 'o', '\0'};
+					//Packet p(payload, 5);
+					Packet p(buf.ExtractFront(datasize));
+							// should I really extract it, or keep it there and move?
+							// how the hell can i handle packet history for resends?
+							// maybe i should just save actual "last packet sent"...
+							// ...the whole damned packet?
 					unsigned char f = 0;
-					GeneratePacket(p, tcps, f, c, 5);
+					GeneratePacket(p, tcps, f, c, datasize);
 					MinetSend(mux, p);
+// TODO: wait for ack... send more if more
 					cst->state.SetLastSent(cst->state.GetLastSent()+1);
 					break;
 					}
 
 				case CLOSE: //should work as is
 					{
-						SockRequestResponse repl;
-						repl.type=STATUS;
-						repl.connection=req.connection;
+						// application requests close -> SEND fin -> FIN_WAIT_1
+						//   that isn't a packet from mux...
+						SockRequestResponse reply;
+						reply.type=STATUS;
+						reply.connection=req.connection;
 						// buffer is zero bytes
-						repl.bytes=0;
-						repl.error=ENOMATCH;
-						MinetSend(sock,repl);
+						reply.bytes=0;
+						reply.error=ENOMATCH;
+						MinetSend(sock, reply);
 					}
 					
 					//will add other response types as needed
@@ -459,9 +517,11 @@ void GeneratePacket(Packet &packet, TCPState st, unsigned char flags, Connection
 		tcph.SetSeqNum(s.GetLastAcked(), packet); // notice this is lastacked -- +1, since we're a new packet; ignore lost pockets, we're the next one no matter what
 		tcph.SetAckNum(s.GetLastRecvd()+1, packet);	// notice acking last in
 		tcph.SetFlags(flags, packet);
-		tcph.SetWinSize(s.GetN(), packet); // difference between Rwnd and N?
 		tcph.SetUrgentPtr(0, packet);
 		//tcpstate.cc:   N = 16*TCP_MAXIMUM_SEGMENT_SIZE; //16 packets allowed in flight
+		//tcph.SetWinSize(s.GetN(), packet); // difference between Rwnd and N?
+		// for this project: implement as stop-and-wait, one packet only
+		tcph.SetWinSize(s.GetRwnd(), packet);
 		tcph.RecomputeChecksum(packet);
 	cout<<tcph<<"\n";
 	packet.PushBackHeader(tcph);
