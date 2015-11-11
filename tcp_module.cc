@@ -224,7 +224,7 @@ int main(int argc, char * argv[]) {
 //#2a
 // State:SYNC_SENT + Flag:SYN+ACK -> (Flag:ACK) State:ESTABLISHED [client]
 							//update our connection state
-							connections->state.SetLastRecvd(seq_num);
+							connections->state.SetLastRecvd(seq_num+1);
 							connections->state.SetLastAcked(ack_num);	// this is an ack
 									// previously had ack_num+1. should not be necessary
 							connections->state.SetSendRwnd(win_size);	// still need to verify how rwnd vs "n" work
@@ -462,9 +462,9 @@ int main(int argc, char * argv[]) {
 					printf("|ENDDATA");
 // end print incoming data to console
 					
-					//const char payload[] = {'h', 'e', 'l', 'o', '\0'};
-					//Packet p(payload, 5);
-					Packet p(buf.ExtractFront(datasize));
+					const char payload[] = {'h', 'e', 'l', 'o', '\0'};
+					Packet p(payload, 5);
+					//Packet p(buf.ExtractFront(datasize));
 							// should I really extract it, or keep it there and move?
 							// how the hell can i handle packet history for resends?
 							// maybe i should just save actual "last packet sent"...
@@ -472,10 +472,10 @@ int main(int argc, char * argv[]) {
 					unsigned char f = 0;
 					SET_ACK(f);
 					SET_PSH(f);
-					GeneratePacket(p, tcps, f, c, datasize);
+					GeneratePacket(p, tcps, f, c, 5);
 					MinetSend(mux, p);
 // TODO: wait for ack... send more if more
-					cst->state.SetLastSent(cst->state.GetLastSent()+buf.GetSize());
+					cst->state.SetLastSent(cst->state.GetLastSent()+5);
 					}
 					break;
 					}
