@@ -107,7 +107,18 @@ int main(int argc, char * argv[]) {
 				//get IP 
 				IPHeader ip = pkt.FindHeader(Headers::IPHeader);
 
-				Buffer buf = pkt.GetPayload();
+				unsigned short totallength = 0;
+				ip.GetTotalLength(totallength);
+				unsigned char IPhlength = 0;
+				ip.GetHeaderLength(IPhlength);
+				IPhlength *= 4;
+				unsigned char TCPhlength = 0;
+				header.GetHeaderLen(TCPhlength);
+				TCPhlength *= 4;
+				unsigned datalength = totallength - IPhlength - TCPhlength;
+
+				Buffer bufraw = pkt.GetPayload();
+				Buffer buf = bufraw.ExtractFront(datalength);
 				
 				//get IPs and Ports	
 				Connection c;
@@ -189,7 +200,7 @@ int main(int argc, char * argv[]) {
 //#2a
 // State:SYNC_RECV + Flag:ACK -> (no send) ESTABLISHED [server]
 							connections->state.SetLastRecvd(seq_num);
-							connections->state.SetLastAcked(ack_num+1); // this is an ack
+							connections->state.SetLastAcked(ack_num); // this is an ack
 							connections->state.SetSendRwnd(win_size);
 							
 							//set up our sock
@@ -243,21 +254,26 @@ int main(int argc, char * argv[]) {
 					}
 				case ESTABLISHED: {
 						if (IS_ACK(flags)) {
-							printf("A packet was acknowledged: %d\n", ack_num);
+							printf("\tA packet was acknowledged: %d\n", ack_num);
 							connections->state.SetLastAcked(ack_num);
+							printf("\tGetLastAcked: %d\n", connections->state.GetLastAcked() + 1 ); // it subtracts one!
 						}
 
 						if (IS_FIN(flags)) {
+							printf("\tFIN packet.\n");
 							// RECV: fin, SEND ack -> CLOSE_WAIT
 						}
 						
+						if ( buf.GetSize() > 0 )
 						{
+							printf("\tData packet data size: %d\n", buf.GetSize());
+							connections->state.SetLastRecvd(seq_num + buf.GetSize() -1); // notice this is ack number
 							// OR data
 							// send ack!
 							Packet p;
 							unsigned char f = 0;
 							SET_ACK(f);
-							GeneratePacket(p, connections->state, f, c, 0);
+							GeneratePacket(p, connections->state, f, c, buf.GetSize());
 							MinetSend(mux, p);				
 							// connections->state.SetLastSent(connections->state.GetLastSent()+1);
 							// an ack shouldn't increment the sent
@@ -380,7 +396,7 @@ int main(int argc, char * argv[]) {
 // have to create new connection
 						TCPState tcps;
 						tcps.SetState(LISTEN);
-						tcps.SetLastAcked(rand()); // notes say this should be random
+						tcps.SetLastAcked(rand()%32000); // notes say this should be random
 						tcps.SetLastSent(tcps.GetLastAcked());
 						
 						Connection c;
@@ -402,6 +418,8 @@ int main(int argc, char * argv[]) {
 						break;
 					}
 				case WRITE: {
+					//TODO: Set "psh" flag?
+					//TODO: seq# should be last acked...
 					//TODO: check in state established.
 					ConnectionList<TCPState>::iterator cst = clist.FindMatching(req.connection);
 					
@@ -432,10 +450,12 @@ int main(int argc, char * argv[]) {
 							// maybe i should just save actual "last packet sent"...
 							// ...the whole damned packet?
 					unsigned char f = 0;
+					SET_ACK(f);
+					SET_PSH(f);
 					GeneratePacket(p, tcps, f, c, datasize);
 					MinetSend(mux, p);
 // TODO: wait for ack... send more if more
-					cst->state.SetLastSent(cst->state.GetLastSent()+1);
+					cst->state.SetLastSent(cst->state.GetLastSent()+buf.GetSize());
 					break;
 					}
 
@@ -523,6 +543,6 @@ void GeneratePacket(Packet &packet, TCPState st, unsigned char flags, Connection
 		// for this project: implement as stop-and-wait, one packet only
 		tcph.SetWinSize(s.GetRwnd(), packet);
 		tcph.RecomputeChecksum(packet);
-	cout<<tcph<<"\n";
+	//cout<<tcph<<"\n";
 	packet.PushBackHeader(tcph);
 }
