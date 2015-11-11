@@ -338,8 +338,11 @@ int main(int argc, char * argv[]) {
 				
 				SockRequestResponse req;
 				MinetReceive(sock, req); //recieve the request
+
 				cout<<"!ReqType: "<<req.type<<"\n";
 				//handling first connection
+		
+				if (cst == clist.end()){
 				switch(req.type){
 //enum srrType {CONNECT=0, ACCEPT=1, WRITE=2, FORWARD=3, CLOSE=4, STATUS=5};					
 				case CONNECT:
@@ -407,7 +410,7 @@ int main(int argc, char * argv[]) {
 						ConnectionToStateMapping<TCPState> cs;
 						cs.connection = c;
 						cs.state = tcps;
-						clist.push_front(cs);
+						clist.push_back(cs);
 
 						SockRequestResponse reply;
 						reply.type=STATUS;
@@ -420,11 +423,25 @@ int main(int argc, char * argv[]) {
 						break;
 					}
 				case WRITE: {
+
+					//TRY THIS 
+					ConnectionList<TCPState>::iterator cst = clist.FindMatching(req.connection);
+
+					if(cst == clist.end()){
+					SockRequestResponse reply;
+					reply.type = STATUS;
+					reply.connection = req.connection;
+					reply.bytes = 0;
+					reply.error = ENOMATCH;
+					Minet.send(sock, reply);
+					}
+		
+					else{
+				
 					cout<<"Are we here yet?\n";
 					//TODO: Set "psh" flag?
 					//TODO: seq# should be last acked...
 					//TODO: check in state established.
-					ConnectionList<TCPState>::iterator cst = clist.FindMatching(req.connection);
 					
 					Connection c = cst->connection;
 					TCPState tcps = cst->state;
@@ -459,8 +476,10 @@ int main(int argc, char * argv[]) {
 					MinetSend(mux, p);
 // TODO: wait for ack... send more if more
 					cst->state.SetLastSent(cst->state.GetLastSent()+buf.GetSize());
+					}
 					break;
 					}
+				
 
 				case CLOSE: //should work as is
 					{
@@ -488,6 +507,7 @@ int main(int argc, char * argv[]) {
 				}
 			}
 		}
+      }
 
 		if (event.eventtype == MinetEvent::Timeout) {
 			// timeout ! probably need to resend some packets
