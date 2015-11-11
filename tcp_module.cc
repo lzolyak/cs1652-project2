@@ -255,8 +255,8 @@ int main(int argc, char * argv[]) {
 				case ESTABLISHED: {
 						if (IS_ACK(flags)) {
 							printf("\tA packet was acknowledged: %d\n", ack_num);
-							connections->state.SetLastAcked(ack_num);
-							printf("\tGetLastAcked: %d\n", connections->state.GetLastAcked() + 1 ); // it subtracts one!
+							connections->state.SetLastAcked(ack_num+1); // it subtracts one!
+							printf("\tGetLastAcked: %d\n", connections->state.GetLastAcked());
 						}
 
 						if (IS_FIN(flags)) {
@@ -267,7 +267,7 @@ int main(int argc, char * argv[]) {
 						if ( buf.GetSize() > 0 )
 						{
 							printf("\tData packet data size: %d\n", buf.GetSize());
-							connections->state.SetLastRecvd(seq_num + buf.GetSize() -1); // notice this is ack number
+							connections->state.SetLastRecvd(seq_num + buf.GetSize() - 1); // notice this is ack number
 							// OR data
 							// send ack!
 							Packet p;
@@ -281,12 +281,14 @@ int main(int argc, char * argv[]) {
 							// push data to socket
 							SockRequestResponse reply;
 							reply.type = WRITE;
-							reply.connection = connections->connection;
+							reply.connection = c;
 							reply.error = EOK;
 							reply.bytes = buf.GetSize();
 							reply.data = buf;
 							MinetSend(sock, reply);
-
+							printf("\t\tData should have been given back to socket.|");
+							cout<<buf;
+							printf("|\n");
 						}
 						break;
 					}
@@ -336,7 +338,7 @@ int main(int argc, char * argv[]) {
 				
 				SockRequestResponse req;
 				MinetReceive(sock, req); //recieve the request
-
+				cout<<"!ReqType: "<<req.type<<"\n";
 				//handling first connection
 				switch(req.type){
 //enum srrType {CONNECT=0, ACCEPT=1, WRITE=2, FORWARD=3, CLOSE=4, STATUS=5};					
@@ -418,6 +420,7 @@ int main(int argc, char * argv[]) {
 						break;
 					}
 				case WRITE: {
+					cout<<"Are we here yet?\n";
 					//TODO: Set "psh" flag?
 					//TODO: seq# should be last acked...
 					//TODO: check in state established.
@@ -535,6 +538,7 @@ void GeneratePacket(Packet &packet, TCPState st, unsigned char flags, Connection
 		//tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, packet);
 		tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH+1, packet); // need 21, constant defined as 20
 		tcph.SetSeqNum(s.GetLastAcked(), packet); // notice this is lastacked -- +1, since we're a new packet; ignore lost pockets, we're the next one no matter what
+		printf("\tSeq#: XXX\n\tLastAck#: %d\n", s.GetLastAcked());
 		tcph.SetAckNum(s.GetLastRecvd()+1, packet);	// notice acking last in
 		tcph.SetFlags(flags, packet);
 		tcph.SetUrgentPtr(0, packet);
