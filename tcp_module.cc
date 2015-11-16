@@ -1,3 +1,4 @@
+
 // You will build this in project part B - this is merely a
 // stub that does nothing but integrate into the stack
 
@@ -223,8 +224,8 @@ int main(int argc, char * argv[]) {
 //#2a
 // State:SYNC_SENT + Flag:SYN+ACK -> (Flag:ACK) State:ESTABLISHED [client]
 							//update our connection state
-							connections->state.SetLastRecvd(seq_num+1);
-							connections->state.SetLastAcked(ack_num);	// this is an ack
+							connections->state.SetLastRecvd(seq_num);
+							connections->state.SetLastAcked(ack_num+1);	// this is an ack -- notice +1
 									// previously had ack_num+1. should not be necessary
 							connections->state.SetSendRwnd(win_size);	// still need to verify how rwnd vs "n" work
 							
@@ -249,6 +250,32 @@ int main(int argc, char * argv[]) {
 							MinetSendToMonitor(MinetMonitoringEvent("Client: SYN-ACK recv. Sent ACK. Now in state ESTABLISHED.\n"));
 							printf("Client: SYN-ACK recv. Sent ACK. Now in state ESTABLISHED.\n");
 							//todo: handle this ack not recv?
+
+// temporarily send some data from a rigid 
+							const char payload[] = {'h', 'e', 'l', 'o', '\0'};
+							{
+							Packet q(payload, 5);
+							unsigned char g = 0;
+							SET_ACK(g);
+							SET_PSH(g);
+							GeneratePacket(q, connections->state, g, c, 5);
+							MinetSend(mux, q);
+							connections->state.SetLastSent(connections->state.GetLastSent()+5);
+							}
+							usleep(10000); // repeat because ARP isn't populated yet
+
+	
+							{
+							Packet q(payload, 5);
+							unsigned char g = 0;
+							SET_ACK(g);
+							SET_PSH(g);
+							connections->state.SetLastAcked(ack_num+5);
+							GeneratePacket(q,  g, c, 5);
+							MinetSend(mux, q);
+							connections->state.SetLastSent(connections->state.GetLastSent()+5);
+							}
+
 						}
 					}
 				case ESTABLISHED: {
@@ -256,6 +283,9 @@ int main(int argc, char * argv[]) {
 							printf("\tA packet was acknowledged: %d\n", ack_num);
 							connections->state.SetLastAcked(ack_num+1); // it subtracts one!
 							printf("\tGetLastAcked: %d\n", connections->state.GetLastAcked());
+							
+
+
 						}
 
 						if (IS_FIN(flags)) {
@@ -272,7 +302,7 @@ int main(int argc, char * argv[]) {
 							Packet p;
 							unsigned char f = 0;
 							SET_ACK(f);
-							GeneratePacket(p, connections->state, f, c, buf.GetSize());
+							GeneratePacket(p, connections->state, f, c, 0);
 							MinetSend(mux, p);				
 							// connections->state.SetLastSent(connections->state.GetLastSent()+1);
 							// an ack shouldn't increment the sent
@@ -341,7 +371,7 @@ int main(int argc, char * argv[]) {
 				cout<<"!ReqType: "<<req.type<<"\n";
 				//handling first connection
 		
-				if (cst == clist.end()){
+				
 				switch(req.type){
 //enum srrType {CONNECT=0, ACCEPT=1, WRITE=2, FORWARD=3, CLOSE=4, STATUS=5};					
 				case CONNECT:
@@ -432,7 +462,7 @@ int main(int argc, char * argv[]) {
 					reply.connection = req.connection;
 					reply.bytes = 0;
 					reply.error = ENOMATCH;
-					Minet.send(sock, reply);
+					MinetSend(sock, reply);
 					}
 		
 					else{
@@ -461,9 +491,9 @@ int main(int argc, char * argv[]) {
 					printf("|ENDDATA");
 // end print incoming data to console
 					
-					const char payload[] = {'h', 'e', 'l', 'o', '\0'};
-					Packet p(payload, 5);
-					//Packet p(buf.ExtractFront(datasize));
+					//const char payload[] = {'h', 'e', 'l', 'o', '\0'};
+					//Packet p(payload, 5);
+					Packet p(buf.ExtractFront(datasize));
 							// should I really extract it, or keep it there and move?
 							// how the hell can i handle packet history for resends?
 							// maybe i should just save actual "last packet sent"...
@@ -471,10 +501,10 @@ int main(int argc, char * argv[]) {
 					unsigned char f = 0;
 					SET_ACK(f);
 					SET_PSH(f);
-					GeneratePacket(p, tcps, f, c, 5);
+					GeneratePacket(p, tcps, f, c, datasize);
 					MinetSend(mux, p);
 // TODO: wait for ack... send more if more
-					cst->state.SetLastSent(cst->state.GetLastSent()+5);
+					cst->state.SetLastSent(cst->state.GetLastSent()+buf.GetSize());
 					}
 					break;
 					}
@@ -506,96 +536,13 @@ int main(int argc, char * argv[]) {
 				}
 			}
 		}
-      }
+     
 
 		if (event.eventtype == MinetEvent::Timeout) {
-
-			//get the current time
-			Time current_time;
+			// timeout ! probably need to resend some packets
 			
-		        list<ConnectionList<TCPState>::iterator> con_list;
-
-                        for(ConnectionList<TCPState>::iterator clist_iterator = clist.begin(); clist_iterator!=clist.end(); clist_iterator++) {
-				
-			  if(current_time >= clist_iterator->timeout){ //check if we have a timeout
-			     MinetSendToMonitor(MinetMonitoringEvent("timeout ! probably need to resend some packets"));
-				     
-			      
-			     //get the state
-			     unsigned int timeout_state;
-			     timeout_state = clist_iterator->state.GetState();
-	
-			     switch(timeout_state){
-			        case SYN_SENT: {
-				  if(clist_iterator.ExpireTimerTries()){ //check if we have exceeded our tries
-					Buffer data;
-				
-				  	SockRequestResponse write(WRITE, data, 0, ECONN_FAILED);
-					MinetSend(sock, write);
-					clist_iterator->bTmrActive = false;
-					clist_iterator->state.SetState(CLOSING);
-					}
-	
-				  else{ //retransmit
-					Packet new_syn;
-					unsigned char f = 0;
-					F_SYN(f);
-					
-					GeneratePacket(new_syn, timeout_state, f, clist_iterator->connection, 0);
-					
-					MinetSend(mux, new_syn);
-					clist_iterator->timeout = current_time + 0.5;
-				  }
-				break;
-				}
-				
-				case SYN_RCVD: {
-				   if(clist_iterator.ExpireTimerTries()){ //check if we have exceeded our tries
-	
-					clist_iterator->bTmrActive = false;
-					clist_iterator->state.SetState(LISTEN);
-				   }
-				   else{
-					Packet new_syn_ack;
-                                        
-
-					unsigned char f = 0;
-					SYN_SYN(f);
-					
-					GeneratePacket(new_syn_ack, timeout_state, f, clist_iterator->connection, 0);
-
-                                        MinetSend(mux, new_syn_ack);
-                                        clist_iterator->timeout = current_time + 0.5;
-
-				   }
-				break;
-				}
-				
-			    case TIME_WAIT:{
-				//close
-				con_list.push_back(clist_iterator);
-			   
-			    }
-
-
-			    case ESTABLISHED: {
-	    			cs->bTmrActive = false;
-	    			SockRequestResponse reply(WRITE, clist_iterator->connection, Buffer(), 0, ECONN_FAILED);//close it
-	    			MinetSend(sock, reply);//close connection
-	    			con_list.push_back(con_list);
-	  	    
-				}
-
-			
-			     }
-		
-		else{ //all packets within time window
- 			clist_iterator->bTmrActive = false;}
+			MinetSendToMonitor(MinetMonitoringEvent("timeout ! probably need to resend some packets"));
 		}
-
-		 for(list<ConnectionList<TCPState>::iterator>::iterator remove = con_list.begin(); remove!= con_list.end();con_list++) {
-   			 clist.erase(*remove);
-  		}
 
 	}
 
