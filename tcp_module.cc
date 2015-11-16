@@ -1,4 +1,3 @@
-
 // You will build this in project part B - this is merely a
 // stub that does nothing but integrate into the stack
 
@@ -510,10 +509,93 @@ int main(int argc, char * argv[]) {
       }
 
 		if (event.eventtype == MinetEvent::Timeout) {
-			// timeout ! probably need to resend some packets
+
+			//get the current time
+			Time current_time;
 			
-			MinetSendToMonitor(MinetMonitoringEvent("timeout ! probably need to resend some packets"));
+		        list<ConnectionList<TCPState>::iterator> con_list;
+
+                        for(ConnectionList<TCPState>::iterator clist_iterator = clist.begin(); clist_iterator!=clist.end(); clist_iterator++) {
+				
+			  if(current_time >= clist_iterator->timeout){ //check if we have a timeout
+			     MinetSendToMonitor(MinetMonitoringEvent("timeout ! probably need to resend some packets"));
+				     
+			      
+			     //get the state
+			     unsigned int timeout_state;
+			     timeout_state = clist_iterator->state.GetState();
+	
+			     switch(timeout_state){
+			        case SYN_SENT: {
+				  if(clist_iterator.ExpireTimerTries()){ //check if we have exceeded our tries
+					Buffer data;
+				
+				  	SockRequestResponse write(WRITE, data, 0, ECONN_FAILED);
+					MinetSend(sock, write);
+					clist_iterator->bTmrActive = false;
+					clist_iterator->state.SetState(CLOSING);
+					}
+	
+				  else{ //retransmit
+					Packet new_syn;
+					unsigned char f = 0;
+					F_SYN(f);
+					
+					GeneratePacket(new_syn, timeout_state, f, clist_iterator->connection, 0);
+					
+					MinetSend(mux, new_syn);
+					clist_iterator->timeout = current_time + 0.5;
+				  }
+				break;
+				}
+				
+				case SYN_RCVD: {
+				   if(clist_iterator.ExpireTimerTries()){ //check if we have exceeded our tries
+	
+					clist_iterator->bTmrActive = false;
+					clist_iterator->state.SetState(LISTEN);
+				   }
+				   else{
+					Packet new_syn_ack;
+                                        
+
+					unsigned char f = 0;
+					SYN_SYN(f);
+					
+					GeneratePacket(new_syn_ack, timeout_state, f, clist_iterator->connection, 0);
+
+                                        MinetSend(mux, new_syn_ack);
+                                        clist_iterator->timeout = current_time + 0.5;
+
+				   }
+				break;
+				}
+				
+			    case TIME_WAIT:{
+				//close
+				con_list.push_back(clist_iterator);
+			   
+			    }
+
+
+			    case ESTABLISHED: {
+	    			cs->bTmrActive = false;
+	    			SockRequestResponse reply(WRITE, clist_iterator->connection, Buffer(), 0, ECONN_FAILED);//close it
+	    			MinetSend(sock, reply);//close connection
+	    			con_list.push_back(con_list);
+	  	    
+				}
+
+			
+			     }
+		
+		else{ //all packets within time window
+ 			clist_iterator->bTmrActive = false;}
 		}
+
+		 for(list<ConnectionList<TCPState>::iterator>::iterator remove = con_list.begin(); remove!= con_list.end();con_list++) {
+   			 clist.erase(*remove);
+  		}
 
 	}
 
