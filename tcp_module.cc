@@ -341,7 +341,7 @@ int main(int argc, char * argv[]) {
 				cout<<"!ReqType: "<<req.type<<"\n";
 				//handling first connection
 		
-				if (cst == clist.end()){
+			
 				switch(req.type){
 //enum srrType {CONNECT=0, ACCEPT=1, WRITE=2, FORWARD=3, CLOSE=4, STATUS=5};					
 				case CONNECT:
@@ -506,7 +506,7 @@ int main(int argc, char * argv[]) {
 				}
 			}
 		}
-      }
+      
 
 		if (event.eventtype == MinetEvent::Timeout) {
 
@@ -596,7 +596,7 @@ int main(int argc, char * argv[]) {
 		 for(list<ConnectionList<TCPState>::iterator>::iterator remove = con_list.begin(); remove!= con_list.end();con_list++) {
    			 clist.erase(*remove);
   		}
-
+		}
 	}
 
 	MinetDeinit();
