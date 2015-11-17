@@ -20,7 +20,7 @@
 
 #include <iostream>
 #include <deque>
-
+#include <list>
 #include "Minet.h"
 #include "tcpstate.h"
 #include "packet.h"
@@ -212,7 +212,7 @@ int main(int argc, char * argv[]) {
 							
 							connections->state.SetState(ESTABLISHED);
 							MinetSendToMonitor(MinetMonitoringEvent("SERVER: ACK to SYN recv. Send nothing. Now in state ESTABLISHED.\n"));							
-							printf("SERVER: ACK to SYN recv. Send nothing. Now in state ESTABLISHED.\n");							
+						printf("SERVER: ACK to SYN recv. Send nothing. Now in state ESTABLISHED.\n");							
 						}
 						break;
 					}
@@ -348,7 +348,8 @@ int main(int argc, char * argv[]) {
 					{ 
 //#2a
 // State:CLOSED + Req:CONNECT -> (Flag:SYN) State:SYN_SENT [client]
-// have to create new connection
+/
+/ have to create new connection
 						TCPState tcps;
 						tcps.SetState(SYN_SENT);
 						tcps.SetLastAcked(rand()%32000); // notes say this should be random
@@ -527,7 +528,7 @@ int main(int argc, char * argv[]) {
 	
 			     switch(timeout_state){
 			        case SYN_SENT: {
-				  if(clist_iterator.ExpireTimerTries()){ //check if we have exceeded our tries
+				  if(clist_iterator ){ //check if we have exceeded our tries
 					Buffer data;
 				
 				  	SockRequestResponse write(WRITE, data, 0, ECONN_FAILED);
@@ -550,7 +551,7 @@ int main(int argc, char * argv[]) {
 				}
 				
 				case SYN_RCVD: {
-				   if(clist_iterator.ExpireTimerTries()){ //check if we have exceeded our tries
+				   if(clist_iterator->state.ExpireTimerTries()){ //check if we have exceeded our tries
 	
 					clist_iterator->bTmrActive = false;
 					clist_iterator->state.SetState(LISTEN);
@@ -560,7 +561,7 @@ int main(int argc, char * argv[]) {
                                         
 
 					unsigned char f = 0;
-					SYN_SYN(f);
+					SYN_ACK(f);
 					
 					GeneratePacket(new_syn_ack, timeout_state, f, clist_iterator->connection, 0);
 
@@ -579,7 +580,7 @@ int main(int argc, char * argv[]) {
 
 
 			    case ESTABLISHED: {
-	    			cs->bTmrActive = false;
+	    			clist_iterator->bTmrActive = false;
 	    			SockRequestResponse reply(WRITE, clist_iterator->connection, Buffer(), 0, ECONN_FAILED);//close it
 	    			MinetSend(sock, reply);//close connection
 	    			con_list.push_back(con_list);
@@ -598,11 +599,13 @@ int main(int argc, char * argv[]) {
   		}
 		}
 	}
+}
 
 	MinetDeinit();
 
 	return 0;
 }
+
 
 //void GeneratePacket(Packet &packet, TCPState &st, unsigned char flags, Connection &cc) {
 void GeneratePacket(Packet &packet, TCPState st, unsigned char flags, Connection cc, unsigned bytes) {
