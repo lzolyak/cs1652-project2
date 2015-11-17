@@ -178,7 +178,6 @@ int main(int argc, char * argv[]) {
 						if(IS_SYN(flags)){
 							connections->state.SetLastRecvd(seq_num);
 							connections->state.SetSendRwnd(win_size);
-							connections->state.SetSendRwnd(win_size);
 							connections->bTmrActive = true;
 
 							Packet p;
@@ -283,6 +282,19 @@ int main(int argc, char * argv[]) {
 						if (IS_FIN(flags)) {
 							printf("\tFIN packet.\n");
 							// RECV: fin, SEND ack -> CLOSE_WAIT
+							connections->state.SetLastRecvd(seq_num);
+							
+							
+							connections->bTmrActive = true;
+
+							Packet p;
+							unsigned char f = 0;
+							SET_ACK(f);
+							GeneratePacket(p, connections->state, f, c, 0);
+							MinetSend(mux, p);
+						
+							connections->state.SetLastSent(connections->state.GetLastSent()+1);
+							connections->state.SetState(CLOSE_WAIT);
 						}
 						
 						if ( buf.GetSize() > 0 )
@@ -329,21 +341,86 @@ int main(int argc, char * argv[]) {
 					}
 				case FIN_WAIT1: {
 					// RECV ack SEND nothing -> FIN_WAIT_2
+						
+					if(IS_ACK(flags) && !IS_FIN(flags)){
+					connections->state.setState(FIN_WAIT2);
+					}
+
 					// RECV fin SEND ack -> CLOSING
+
+					if(!IS_ACK(flags) && IS_FIN(flags)){
+							connections->state.SetLastRecvd(seq_num);
+							
+							
+							connections->bTmrActive = true;
+
+							Packet p;
+							unsigned char f = 0;
+							SET_ACK(f);
+							GeneratePacket(p, connections->state, f, c, 0);
+							MinetSend(mux, p);
+						
+							connections->state.SetLastSent(connections->state.GetLastSent()+1);
+
+					connections->state.setState(CLOSING);
+					}
+
 					// RECV fin,ack SEND ack -> time_wait (=die for this project)
+
+					if(!IS_ACK(flags) && IS_FIN(flags)){
+							connections->state.SetLastRecvd(seq_num);
+							
+							
+							connections->bTmrActive = true;
+
+							Packet p;
+							unsigned char f = 0;
+							SET_ACK(f);
+							GeneratePacket(p, connections->state, f, c, 0);
+							MinetSend(mux, p);
+						
+							connections->state.SetLastSent(connections->state.GetLastSent()+1);
+
+					connections->state.setState(CLOSED);
+					}
+				
+					}
 					break;
 					}
 				case CLOSING: {
 					// RECV ack -> TIME_WAIT
+					if(IS_ACK(flags)){
+						connections->state.setState(CLOSED);
+					}
 					// nothing done
-					break;
+					break
 					}
 				case LAST_ACK: {
-					// die.
+					if(IS_ACK(flags)){
+
+						connections->state.setState(CLOSED);
+					}
 					break;
 					}
 				case FIN_WAIT2: {
 					// RECV fin SEND ack -> TIME_WAIT (=die)
+					if(IS_FIN(flags)){
+							connections->state.SetLastRecvd(seq_num);
+							
+							
+							connections->bTmrActive = true;
+
+							Packet p;
+							unsigned char f = 0;
+							SET_ACK(f);
+							GeneratePacket(p, connections->state, f, c, 0);
+							MinetSend(mux, p);
+						
+							connections->state.SetLastSent(connections->state.GetLastSent()+1);
+
+					connections->state.setState(CLOSED);
+					
+					}
 					break;
 					}
 				case TIME_WAIT: {
@@ -518,6 +595,24 @@ int main(int argc, char * argv[]) {
 						reply.bytes=0;
 						reply.error=ENOMATCH;
 						MinetSend(sock, reply);
+
+						
+							connections->state.SetLastRecvd(seq_num + 1);
+							
+							connections->bTmrActive = true;
+
+							Packet p;
+							unsigned char f = 0;
+							SET_FIN(f);
+							
+							GeneratePacket(p, connections->state, f, c, 0);
+							MinetSend(mux, p);
+							connections->state.SetLastSent(connections->state.GetLastSent()+1);
+					if(connections->state == CLOSE_WAIT){
+							connections->state.SetState(LAST_ACK);
+					}
+					else{connections->state.SetState(FIN_WAIT1);}
+					
 					}
 					
 					//will add other response types as needed
