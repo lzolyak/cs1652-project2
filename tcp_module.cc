@@ -54,12 +54,12 @@ int main(int argc, char * argv[]) {
 	MinetInit(MINET_TCP_MODULE);
 
 	mux = MinetIsModuleInConfig(MINET_IP_MUX) ?  
-	MinetConnect(MINET_IP_MUX) : 
-	MINET_NOHANDLE;
-	
+		MinetConnect(MINET_IP_MUX) : 
+		MINET_NOHANDLE;
+
 	sock = MinetIsModuleInConfig(MINET_SOCK_MODULE) ? 
-	MinetAccept(MINET_SOCK_MODULE) : 
-	MINET_NOHANDLE;
+		MinetAccept(MINET_SOCK_MODULE) : 
+		MINET_NOHANDLE;
 
 	if ( (mux == MINET_NOHANDLE) && 
 			(MinetIsModuleInConfig(MINET_IP_MUX)) ) {
@@ -79,18 +79,17 @@ int main(int argc, char * argv[]) {
 		return -1;
 	}
 	
-	cerr << "tcp_module STUB VERSION handling tcp traffic.......\n";
-
-	MinetSendToMonitor(MinetMonitoringEvent("tcp_module STUB VERSION handling tcp traffic........"));
-
 	MinetEvent event;
 	double timeout = 1;
 
-	while (MinetGetNextEvent(event, timeout) == 0) {
+	while (MinetGetNextEvent(event) == 0) { // , timeout
 
-		if ((event.eventtype == MinetEvent::Dataflow) && 
+		cout<<"!!! Event type direction: "<<event.eventtype<<" "<<event.direction<<"\n";
+
+		if ((event.eventtype == MinetEvent::Dataflow) || 
 				(event.direction == MinetEvent::IN)) {
 			
+
 			if (event.handle == mux) {
 				// ip packet has arrived!
 				MinetSendToMonitor(MinetMonitoringEvent("TCP/IP packet has arrived!\n"));
@@ -203,6 +202,8 @@ int main(int argc, char * argv[]) {
 							connections->state.SetLastAcked(ack_num); // this is an ack
 							connections->state.SetSendRwnd(win_size);
 							
+							connections->state.SetState(ESTABLISHED);
+
 							//set up our sock
 							SockRequestResponse reply;
 							reply.type = WRITE;
@@ -211,7 +212,6 @@ int main(int argc, char * argv[]) {
 							reply.bytes = 0;
 							MinetSend(sock, reply);
 							
-							connections->state.SetState(ESTABLISHED);
 							MinetSendToMonitor(MinetMonitoringEvent("SERVER: ACK to SYN recv. Send nothing. Now in state ESTABLISHED.\n"));							
 							printf("SERVER: ACK to SYN recv. Send nothing. Now in state ESTABLISHED.\n");							
 						}
@@ -262,19 +262,7 @@ int main(int argc, char * argv[]) {
 							MinetSend(mux, q);
 							connections->state.SetLastSent(connections->state.GetLastSent()+5);
 							}
-							usleep(10000); // repeat because ARP isn't populated yet
 
-	
-							{
-							Packet q(payload, 5);
-							unsigned char g = 0;
-							SET_ACK(g);
-							SET_PSH(g);
-							connections->state.SetLastAcked(ack_num+5);
-							GeneratePacket(q,  g, c, 5);
-							MinetSend(mux, q);
-							connections->state.SetLastSent(connections->state.GetLastSent()+5);
-							}
 
 						}
 					}
@@ -308,13 +296,19 @@ int main(int argc, char * argv[]) {
 							// an ack shouldn't increment the sent
 
 							// push data to socket
-							SockRequestResponse reply;
+							/* SockRequestResponse reply;
 							reply.type = WRITE;
 							reply.connection = c;
 							reply.error = EOK;
 							reply.bytes = buf.GetSize();
 							reply.data = buf;
-							MinetSend(sock, reply);
+							*/
+							  SockRequestResponse write(WRITE,
+										    c,
+										    buf,
+										    buf.GetSize(),
+										    EOK);
+							MinetSend(sock, write);
 							printf("\t\tData should have been given back to socket.|");
 							cout<<buf;
 							printf("|\n");
@@ -368,10 +362,8 @@ int main(int argc, char * argv[]) {
 				SockRequestResponse req;
 				MinetReceive(sock, req); //recieve the request
 
-				cout<<"!ReqType: "<<req.type<<"\n";
 				//handling first connection
-		
-				
+
 				switch(req.type){
 //enum srrType {CONNECT=0, ACCEPT=1, WRITE=2, FORWARD=3, CLOSE=4, STATUS=5};					
 				case CONNECT:
@@ -594,7 +586,8 @@ void GeneratePacket(Packet &packet, TCPState st, unsigned char flags, Connection
 		//tcpstate.cc:   N = 16*TCP_MAXIMUM_SEGMENT_SIZE; //16 packets allowed in flight
 		//tcph.SetWinSize(s.GetN(), packet); // difference between Rwnd and N?
 		// for this project: implement as stop-and-wait, one packet only
-		tcph.SetWinSize(s.GetRwnd(), packet);
+		//tcph.SetWinSize(s.GetRwnd(), packet);
+		tcph.SetWinSize(4096, packet);
 		tcph.RecomputeChecksum(packet);
 	//cout<<tcph<<"\n";
 	packet.PushBackHeader(tcph);
